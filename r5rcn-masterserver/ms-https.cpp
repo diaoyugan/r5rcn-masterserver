@@ -103,12 +103,12 @@ int main() {
         asio::io_context ioc;
         // 创建一个ssl_context对象，用于管理SSL/TLS加密相关的设置
         asio::ssl::context ssl_ctx{ asio::ssl::context::sslv23 };
-        // 加载证书文件和私钥文件，这里假设文件名分别为cert.pem和key.pem，你需要根据你自己的文件名进行修改
+        // 加载证书文件和私钥文件，这里假设文件名分别为Test.crt和Test.key
         ssl_ctx.use_certificate_chain_file("Test.crt");
         ssl_ctx.use_private_key_file("Test.key", asio::ssl::context::pem);
         // 创建一个ip地址对象，表示监听的地址，这里使用ipv4的回环地址
         asio::ip::address address = asio::ip::make_address("127.0.0.1");
-        // 创建一个端口号对象，表示监听的端口，这里使用8080端口
+        // 创建一个端口号对象，表示监听的端口，这里使用37020端口
         unsigned short port = static_cast<unsigned short>(37020);
         // 创建一个endpoint对象，表示监听的地址和端口的组合
         asio::ip::tcp::endpoint endpoint{ address, port };
