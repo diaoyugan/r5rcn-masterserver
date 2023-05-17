@@ -1,5 +1,4 @@
-﻿// 一个简单的c++程序，使用boost库和json库，能够接受两种不同的post请求，一种是获取json数据，一种是添加json数据，并且能够将添加的json数据存储起来，供获取的请求使用
-// 这个版本使用SSL/TLS加密，支持https协议
+﻿// 这个版本使用SSL/TLS加密，支持https协议
 #include <iostream>
 #include <vector>
 #include <boost/asio.hpp>
