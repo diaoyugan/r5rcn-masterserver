@@ -43,6 +43,10 @@ void handle_get_json_request(http::request<http::string_body>& req, http::respon
 
 // 创建一个io_context对象
 boost::asio::io_context io_context;
+// 创建一个全局变量，用于存储定时器对象
+// 改名为global_timer，避免与main函数中的局部变量冲突
+boost::asio::deadline_timer global_timer(io_context);
+
 // 处理添加json数据的请求的函数
 void handle_add_json_request(http::request<http::string_body>& req, http::response<http::string_body>& res) {
     // 从请求中获取json数据
@@ -53,59 +57,104 @@ void handle_add_json_request(http::request<http::string_body>& req, http::respon
     bool invalid = data.contains("cachedId") && data.contains("checksum") && data.contains("description") && data.contains("hidden") && data.contains("ip") && data.contains("key") && data.contains("map") && data.contains("maxPlayers") && data.contains("name") && data.contains("playerCount") && data.contains("playlist") && data.contains("port") && data.contains("publicRef") && data.contains("timeStamp") && data.contains("version");
     // 将invalid变量的值赋给一个新的变量，比如no_response
     bool no_response = invalid;
-    // 将json数据转添加到存储中
-    json_data.push_back(data);
     // 创建一个响应对象
     res.version(11); // HTTP 1.1
     res.result(http::status::ok); // 200 OK
     res.set(http::field::content_type, "application/json"); // 设置响应内容类型为json
     json response;
-    response["success"] = true;
-    res.body() = response.dump();
-    std::cout << "Send json data: " << response << std::endl;
+
     // 判断no_response是否为真，否则按照原来的逻辑设置响应内容
-    if (!no_response) {
-        // 创建一个json对象，作为响应内容
-        json response;
+    if (no_response) {
+        response["success"] = true;
+        res.body() = response.dump();
+        std::cout << "Send json data: " << response << std::endl;
+
+        // - 在存储的数据中查找是否有与接收到的数据相匹配的内容，并更新或添加
+
+        // 定义一个标志变量，表示是否找到匹配的内容
+        bool found = false;
+
+        // 遍历存储的数据中的每个元素
+        for (auto& j : json_data) {
+            // 定义一个标志变量，表示是否所有指定的参数都相等
+            bool equal = true;
+
+            // 遍历指定的参数列表，并比较每个参数的值是否相等
+            for (const auto& param : { "cachedId", "checksum", "description", "hidden", "ip", "key", "map", "maxPlayers", "name", "playlist", "port", "publicRef", "version" }) {
+                if (j[param] != data[param]) {
+                    equal = false;
+                    break;
+                }
+            }
+
+            // 如果所有指定的参数都相等，则更新其他参数的值，并设置found为true
+            if (equal) {
+                j["playerCount"] = data["playerCount"];
+                j["timeStamp"] = data["timeStamp"];
+                j["lastUpdate"] = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count(); // 添加lastUpdate参数，并赋值为当前时间戳
+                found = true;
+                break;
+            }
+        }
+
+        // 如果没有找到匹配的内容，则将接收到的数据添加到存储中，并添加lastUpdate参数
+        if (!found) {
+            data["lastUpdate"] = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count(); // 添加lastUpdate参数，并赋值为当前时间戳
+            json_data.push_back(data);
+        }
+
+        // - 使用global_timer代替timer，以使用全局变量而不是局部变量
+
+        // 取消之前的定时器，避免重复执行回调函数
+        global_timer.cancel();
+
+        // 设置定时器的超时时间为10秒，并将io_context对象作为参数传递给构造函数
+        global_timer.expires_from_now(boost::posix_time::seconds(10));
+
+        // 设置定时器到期时执行的回调函数，删除存储的数据中超过10秒没有更新过的内容
+        global_timer.async_wait([data](const boost::system::error_code& ec) {
+            if (!ec) { // 没有错误发生
+                std::cout << "Timer expired" << std::endl;
+                // 在存储的数据中查找超过10秒没有更新过的内容，并删除
+
+                // 使用std::remove_if代替std::find_if，并提供一个比较函数来判断json对象是否超时
+
+                auto it = std::remove_if(json_data.begin(), json_data.end(), [data](const json& j) {
+                    return j["lastUpdate"].get<long long>() - data["lastUpdate"].get<long long>() > 10; // 使用long long类型来表示时间戳，并使用lastUpdate参数来判断是否超时
+                    });
+
+                if (it != json_data.end()) {
+                    std::cout << "Deleted json data: " << *it << std::endl;
+                    json_data.erase(it, json_data.end());
+                }
+            }
+            else { // 有错误发生，并打印错误信息
+                std::cerr << "Error: " << ec.message() << std::endl;
+            }
+            });
+    }
+    else {
         response["success"] = false;
         response["error"] = "Missing required fields."; // 缺少需要的内容
         // 将json对象转换为字符串，并设置为响应的body
         res.body() = response.dump();
         std::cout << "Send json data: " << response << std::endl;
     }
-    // 创建一个定时器对象，设置超时时间为3秒，并将io_context对象作为参数传递给构造函数
-    boost::asio::deadline_timer timer(io_context);
-    timer.expires_from_now(boost::posix_time::seconds(3));
-    // 设置定时器到期时执行的回调函数，删除存储的数据中对应的内容
-    timer.async_wait([data](const boost::system::error_code& ec) {
-        if (!ec) { // 没有错误发生
-            std::cout << "Timer expired" << std::endl;
-            // 在存储的数据中查找对应的内容，并删除
-            auto it = std::find(json_data.begin(), json_data.end(), data.dump());
-            if (it != json_data.end()) {
-                json_data.erase(it);
-                std::cout << "Deleted json data: " << data << std::endl;
-            }
-        }
-        else { // 有错误发生，并打印错误信息
-            std::cerr << "Error: " << ec.message() << std::endl;
-        }
-        });
 }
 
 
 
 
-// 主函数
+//主函数
 int main() {
     try {
         // 创建一个io_context对象，用于管理异步操作
-        asio::io_context ioc;
+        asio::io_context io;
         // 创建一个ssl_context对象，用于管理SSL/TLS加密相关的设置
         asio::ssl::context ssl_ctx{ asio::ssl::context::sslv23 };
         // 加载证书文件和私钥文件，这里假设文件名分别为Test.crt和Test.key
-        ssl_ctx.use_certificate_chain_file("Test.crt");
-        ssl_ctx.use_private_key_file("Test.key", asio::ssl::context::pem);
+        ssl_ctx.use_certificate_chain_file("C:\\Users\\95741\\source\\repos\\diaoyugan\\r5rcn_master-server\\r5rcn-masterserver\\x64\\Debug\\Test.crt");
+        ssl_ctx.use_private_key_file("C:\\Users\\95741\\source\\repos\\diaoyugan\\r5rcn_master-server\\r5rcn-masterserver\\x64\\Debug\\Test.key", asio::ssl::context::pem);
         // 创建一个ip地址对象，表示监听的地址，这里使用ipv4的回环地址
         asio::ip::address address = asio::ip::make_address("127.0.0.1");
         // 创建一个端口号对象，表示监听的端口，这里使用37020端口
@@ -113,13 +162,13 @@ int main() {
         // 创建一个endpoint对象，表示监听的地址和端口的组合
         asio::ip::tcp::endpoint endpoint{ address, port };
         // 创建一个acceptor对象，用于接受客户端的连接请求
-        asio::ip::tcp::acceptor acceptor{ ioc, endpoint };
+        asio::ip::tcp::acceptor acceptor{ io, endpoint };
         // 等待客户端的连接请求
         std::cout << "Listening on " << endpoint << std::endl;
         while (1) // 用一个循环来处理多个请求
         {
             try { // 使用try-catch语句来捕获可能发生的异常
-                asio::ip::tcp::socket socket{ ioc };
+                asio::ip::tcp::socket socket{ io };
                 acceptor.accept(socket);
                 std::cout << "Accepted connection from " << socket.remote_endpoint() << std::endl;
                 // 创建一个stream对象，用于进行SSL/TLS加密的读写操作
@@ -170,6 +219,9 @@ int main() {
             }
         }
         acceptor.close(); // 在服务器终止时关闭acceptor对象
+
+        io.run(); // 运行io_context对象直到所有异步操作完成
+
     }
     catch (std::exception& e) { // 在catch块中打印异常信息
         std::cerr << "Error: " << e.what() << std::endl;
