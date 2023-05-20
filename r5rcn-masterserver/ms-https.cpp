@@ -5,6 +5,7 @@
 #include <boost/beast.hpp>
 #include <boost/asio/ssl.hpp>
 #include <nlohmann/json.hpp>
+#include <fstream>
 
 namespace asio = boost::asio;
 namespace beast = boost::beast;
@@ -13,33 +14,6 @@ using json = nlohmann::json;
 
 // 创建一个全局变量，用于存储添加的json数据
 std::vector<json> json_data;
-
-// 处理获取json数据的请求的函数
-void handle_get_json_request(http::request<http::string_body>& req, http::response<http::string_body>& res) {
-    // 创建一个响应对象
-    res.version(11); // HTTP 1.1
-    res.result(http::status::ok); // 200 OK
-    res.set(http::field::content_type, "application/json"); // 设置响应内容类型为json
-    // 创建一个json对象，作为响应内容
-    json response;
-    // 从请求中获取json数据
-    json data = json::parse(req.body());
-    // 从json数据中获取version参数，并转换为字符串类型
-    std::string version = data.at("version").get<std::string>();
-
-    // 判断version参数是否为VGameSDK008，如果是，则设置success为true，否则设置success为false和error信息
-    if (version == "VGameSDK008") {
-        response["success"] = true;
-    }
-    else {
-        response["success"] = false;
-        response["error"] = "Your SDK version is unsupported, please update the SDK.";
-    }
-    // 将存储的json数据作为servers字段的值
-    response["servers"] = json_data;
-    // 将json对象转换为字符串，并设置为响应的body
-    res.body() = response.dump();
-}
 
 // 创建一个io_context对象
 boost::asio::io_context io_context;
@@ -53,7 +27,7 @@ void handle_add_json_request(http::request<http::string_body>& req, http::respon
     json data = json::parse(req.body());
     // 打印json数据
     std::cout << "Received json data: " << data << std::endl;
-    // 检查json数据是否包含了指定的参数
+    // 检查json数据是否包含了指定的参数，并且参数的类型是否为字符串
     bool invalid = data.contains("cachedId") && data.contains("checksum") && data.contains("description") && data.contains("hidden") && data.contains("ip") && data.contains("key") && data.contains("map") && data.contains("maxPlayers") && data.contains("name") && data.contains("playerCount") && data.contains("playlist") && data.contains("port") && data.contains("publicRef") && data.contains("timeStamp") && data.contains("version");
     // 将invalid变量的值赋给一个新的变量，比如no_response
     bool no_response = invalid;
@@ -81,7 +55,7 @@ void handle_add_json_request(http::request<http::string_body>& req, http::respon
 
             // 遍历指定的参数列表，并比较每个参数的值是否相等
             for (const auto& param : { "cachedId", "checksum", "description", "hidden", "ip", "key", "map", "maxPlayers", "name", "playlist", "port", "publicRef", "version" }) {
-                if (j[param] != data[param]) {
+                if (j[param].dump() != data[param].dump()) { // 使用dump()方法来将值转换为字符串并比较
                     equal = false;
                     break;
                 }
@@ -99,7 +73,6 @@ void handle_add_json_request(http::request<http::string_body>& req, http::respon
 
         // 如果没有找到匹配的内容，则将接收到的数据添加到存储中，并添加lastUpdate参数
         if (!found) {
-            data["lastUpdate"] = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count(); // 添加lastUpdate参数，并赋值为当前时间戳
             json_data.push_back(data);
         }
 
@@ -108,30 +81,55 @@ void handle_add_json_request(http::request<http::string_body>& req, http::respon
         // 取消之前的定时器，避免重复执行回调函数
         global_timer.cancel();
 
-        // 设置定时器的超时时间为10秒，并将io_context对象作为参数传递给构造函数
-        global_timer.expires_from_now(boost::posix_time::seconds(10));
+        // 设置定时器的超时时间为3秒，并将io_context对象作为参数传递给构造函数
+        global_timer.expires_from_now(boost::posix_time::seconds(3));
 
-        // 设置定时器到期时执行的回调函数，删除存储的数据中超过10秒没有更新过的内容
+        // 设置定时器到期时执行的回调函数，删除存储的数据中超过3秒没有更新过的内容
         global_timer.async_wait([data](const boost::system::error_code& ec) {
             if (!ec) { // 没有错误发生
                 std::cout << "Timer expired" << std::endl;
-                // 在存储的数据中查找超过10秒没有更新过的内容，并删除
-
-                // 使用std::remove_if代替std::find_if，并提供一个比较函数来判断json对象是否超时
-
+                // 在存储的数据中查找超过3秒没有更新过的内容，并删除
                 auto it = std::remove_if(json_data.begin(), json_data.end(), [data](const json& j) {
-                    return j["lastUpdate"].get<long long>() - data["lastUpdate"].get<long long>() > 10; // 使用long long类型来表示时间戳，并使用lastUpdate参数来判断是否超时
+                    return j["timeStamp"].get<long long>() - data["timeStamp"].get<long long>() > 3000; // 使用long long类型来表示时间戳，并使用timeStamp参数来判断是否超时
                     });
 
                 if (it != json_data.end()) {
                     std::cout << "Deleted json data: " << *it << std::endl;
                     json_data.erase(it, json_data.end());
+                    std::cout << json_data << std::endl;
                 }
             }
             else { // 有错误发生，并打印错误信息
                 std::cerr << "Error: " << ec.message() << std::endl;
             }
             });
+
+        // - 将接收到的json数据转换为字符串，并写入到一个json文件中
+
+        // 创建一个输出文件流对象，打开一个名为data.json的文件，如果不存在则创建它，如果存在则追加内容
+        std::ofstream ofs("data.json", std::ios_base::app);
+
+        // 判断文件是否打开成功，否则打印错误信息并返回
+        if (!ofs.is_open()) {
+            std::cerr << "Error: failed to open file" << std::endl;
+            return;
+        }
+
+        // 将json数据转换为字符串，并添加一个换行符
+        std::string output = data.dump() + "\n";
+
+        // 将字符串写入到文件中，并关闭文件流对象
+        ofs << output;
+        ofs.close();
+
+        // - 将hidden参数的值转换为字符串，并替换原来的hidden属性的值
+
+        // 调用dump()方法，将hidden参数的值转换为字符串，并赋给一个新变量hidden_str
+        std::string hidden_str = data["hidden"].dump();
+
+        // 将hidden_str作为属性值替换原来的hidden属性的值
+        data["hidden"] = hidden_str;
+
     }
     else {
         response["success"] = false;
@@ -140,10 +138,60 @@ void handle_add_json_request(http::request<http::string_body>& req, http::respon
         res.body() = response.dump();
         std::cout << "Send json data: " << response << std::endl;
     }
+
 }
 
 
+// 处理获取json数据的请求的函数
+void handle_get_json_request(http::request<http::string_body>& req, http::response<http::string_body>& res) {
+    // 创建一个响应对象
+    res.version(11); // HTTP 1.1
+    res.result(http::status::ok); // 200 OK
+    res.set(http::field::content_type, "application/json"); // 设置响应内容类型为json
+    // 创建一个json对象，作为响应内容
+    json response;
+    // 从请求中获取json数据
+    json data = json::parse(req.body());
+    // 从json数据中获取version参数，并转换为字符串类型
+    std::string version = data.at("version").get<std::string>();
 
+    // 从json数据中获取version参数，并转换为字符串类型
+    // 检查data中是否有"version"键，如果没有，直接返回一个错误信息给请求者
+    if (data.contains("version")) {
+        std::string version = data.at("version").get<std::string>();
+        // 判断version参数是否为VGameSDK008，如果是，则设置success为true，否则设置success为false和error信息
+        if (version == "VGameSDK008") {
+            response["success"] = true;
+            io_context.run();
+            std::cout << json_data << std::endl;
+        }
+        else {
+            response["success"] = false;
+            response["error"] = "Your SDK version is unsupported, please update the SDK.";
+            io_context.run();
+            std::cout << json_data << std::endl;
+        }
+    }
+    else {
+        response["success"] = false;
+        response["error"] = "Missing field.";
+        io_context.run();
+        std::cout << json_data << std::endl;
+    }
+
+
+    // 将存储的json数据作为servers字段的值
+    response["servers"] = json_data;
+    // 遍历返回结果中的servers字段的每个元素
+    for (auto& j : response["servers"]) {
+        // 调用dump()方法，将hidden参数的值转换为字符串，并赋给一个新变量hidden_str
+        std::string hidden_str = j["hidden"].dump();
+        // 将hidden_str作为属性值替换原来的hidden属性的值
+        j["hidden"] = hidden_str;
+    }
+    // 将json对象转换为字符串，并设置为响应的body
+    res.body() = response.dump();
+}
 
 //主函数
 int main() {
@@ -217,10 +265,11 @@ int main() {
             catch (std::exception& e) { // 在catch块中打印异常信息
                 std::cerr << "Exception: " << e.what() << std::endl;
             }
+            io.run(); // 运行io_context对象直到所有异步操作完成
+            io_context.run();
+
         }
         acceptor.close(); // 在服务器终止时关闭acceptor对象
-
-        io.run(); // 运行io_context对象直到所有异步操作完成
 
     }
     catch (std::exception& e) { // 在catch块中打印异常信息
