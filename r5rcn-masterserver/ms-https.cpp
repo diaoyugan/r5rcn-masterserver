@@ -5,7 +5,6 @@
 #include <boost/beast.hpp>
 #include <boost/asio/ssl.hpp>
 #include <nlohmann/json.hpp>
-#include <fstream>
 
 namespace asio = boost::asio;
 namespace beast = boost::beast;
@@ -104,23 +103,6 @@ void handle_add_json_request(http::request<http::string_body>& req, http::respon
             }
             });
 
-        // - 将接收到的json数据转换为字符串，并写入到一个json文件中
-
-        // 创建一个输出文件流对象，打开一个名为data.json的文件，如果不存在则创建它，如果存在则追加内容
-        std::ofstream ofs("data.json", std::ios_base::app);
-
-        // 判断文件是否打开成功，否则打印错误信息并返回
-        if (!ofs.is_open()) {
-            std::cerr << "Error: failed to open file" << std::endl;
-            return;
-        }
-
-        // 将json数据转换为字符串，并添加一个换行符
-        std::string output = data.dump() + "\n";
-
-        // 将字符串写入到文件中，并关闭文件流对象
-        ofs << output;
-        ofs.close();
 
         // - 将hidden参数的值转换为字符串，并替换原来的hidden属性的值
 
@@ -162,20 +144,17 @@ void handle_get_json_request(http::request<http::string_body>& req, http::respon
         // 判断version参数是否为VGameSDK008，如果是，则设置success为true，否则设置success为false和error信息
         if (version == "VGameSDK008") {
             response["success"] = true;
-            io_context.run();
             std::cout << json_data << std::endl;
         }
         else {
             response["success"] = false;
             response["error"] = "Your SDK version is unsupported, please update the SDK.";
-            io_context.run();
             std::cout << json_data << std::endl;
         }
     }
     else {
         response["success"] = false;
         response["error"] = "Missing field.";
-        io_context.run();
         std::cout << json_data << std::endl;
     }
 
@@ -213,6 +192,25 @@ int main() {
         asio::ip::tcp::acceptor acceptor{ io, endpoint };
         // 等待客户端的连接请求
         std::cout << "Listening on " << endpoint << std::endl;
+
+        // 创建一个thread对象，用于执行io_context.run()函数
+        std::thread t{[&io]() { io_context.run(); }};
+
+        // 定义一个尾递归的lambda表达式，用于每三秒调用一次io_context.run()函数
+        std::function<void(std::chrono::time_point<std::chrono::steady_clock>)> run_io;
+        run_io = [&](std::chrono::time_point<std::chrono::steady_clock> next_time) {
+            // 调用io_context.run()函数
+            io_context.run();
+            // 使用std::this_thread::sleep_until函数，让当前线程休眠到下一次调用的时间
+            std::this_thread::sleep_until(next_time);
+            // 递归调用自身，并更新下一次调用的时间为三秒后，实现循环执行
+            run_io(next_time + std::chrono::seconds(3));
+        };
+
+        // 调用一次lambda表达式，并传入当前时间作为参数，启动定时器
+        run_io(std::chrono::steady_clock::now());
+
+
         while (1) // 用一个循环来处理多个请求
         {
             try { // 使用try-catch语句来捕获可能发生的异常
