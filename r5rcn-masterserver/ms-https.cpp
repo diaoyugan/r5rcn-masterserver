@@ -1,4 +1,7 @@
 ﻿// 这个版本使用SSL/TLS加密，支持https协议
+// 证书验证在217行 如果不写对域名 那么就无法运行
+
+
 #include <iostream>
 #include <vector>
 #include <boost/asio.hpp>
@@ -78,18 +81,20 @@ void handle_add_json_request(http::request<http::string_body>& req, http::respon
         // - 使用global_timer代替timer，以使用全局变量而不是局部变量
 
         // 取消之前的定时器，避免重复执行回调函数
-        global_timer.cancel();
+//        global_timer.cancel();
 
-        // 设置定时器的超时时间为3秒，并将io_context对象作为参数传递给构造函数
-        global_timer.expires_from_now(boost::posix_time::seconds(3));
+        // 设置定时器的超时时间为1秒，并将io_context对象作为参数传递给构造函数
+        global_timer.expires_from_now(boost::posix_time::seconds(1));
 
         // 设置定时器到期时执行的回调函数，删除存储的数据中超过3秒没有更新过的内容
-        global_timer.async_wait([data](const boost::system::error_code& ec) {
+        global_timer.async_wait([](const boost::system::error_code& ec) {
             if (!ec) { // 没有错误发生
                 std::cout << "Timer expired" << std::endl;
+                // 获取当前时间戳，使用long long类型来表示
+                long long now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
                 // 在存储的数据中查找超过3秒没有更新过的内容，并删除
-                auto it = std::remove_if(json_data.begin(), json_data.end(), [data](const json& j) {
-                    return j["timeStamp"].get<long long>() - data["timeStamp"].get<long long>() > 3000; // 使用long long类型来表示时间戳，并使用timeStamp参数来判断是否超时
+                auto it = std::remove_if(json_data.begin(), json_data.end(), [now](const json& j) {
+                    return now - j["timeStamp"].get<long long>() > 3000; // 使用timeStamp参数来判断是否超时
                     });
 
                 if (it != json_data.end()) {
@@ -102,6 +107,7 @@ void handle_add_json_request(http::request<http::string_body>& req, http::respon
                 std::cerr << "Error: " << ec.message() << std::endl;
             }
             });
+
 
 
         // - 将hidden参数的值转换为字符串，并替换原来的hidden属性的值
@@ -180,36 +186,18 @@ int main() {
         // 创建一个ssl_context对象，用于管理SSL/TLS加密相关的设置
         asio::ssl::context ssl_ctx{ asio::ssl::context::sslv23 };
         // 加载证书文件和私钥文件，这里假设文件名分别为Test.crt和Test.key
-        ssl_ctx.use_certificate_chain_file("C:\\Users\\95741\\source\\repos\\diaoyugan\\r5rcn_master-server\\r5rcn-masterserver\\x64\\Debug\\Test.crt");
-        ssl_ctx.use_private_key_file("C:\\Users\\95741\\source\\repos\\diaoyugan\\r5rcn_master-server\\r5rcn-masterserver\\x64\\Debug\\Test.key", asio::ssl::context::pem);
+        ssl_ctx.use_certificate_chain_file("cert.crt");
+        ssl_ctx.use_private_key_file("cert.key", asio::ssl::context::pem);
         // 创建一个ip地址对象，表示监听的地址，这里使用ipv4的回环地址
         asio::ip::address address = asio::ip::make_address("127.0.0.1");
-        // 创建一个端口号对象，表示监听的端口，这里使用37020端口
-        unsigned short port = static_cast<unsigned short>(37020);
+        // 创建一个端口号对象，表示监听的端口，这里使用443端口
+        unsigned short port = static_cast<unsigned short>(443);
         // 创建一个endpoint对象，表示监听的地址和端口的组合
         asio::ip::tcp::endpoint endpoint{ address, port };
         // 创建一个acceptor对象，用于接受客户端的连接请求
         asio::ip::tcp::acceptor acceptor{ io, endpoint };
         // 等待客户端的连接请求
         std::cout << "Listening on " << endpoint << std::endl;
-
-        // 创建一个thread对象，用于执行io_context.run()函数
-        std::thread t{[&io]() { io_context.run(); }};
-
-        // 定义一个尾递归的lambda表达式，用于每三秒调用一次io_context.run()函数
-        std::function<void(std::chrono::time_point<std::chrono::steady_clock>)> run_io;
-        run_io = [&](std::chrono::time_point<std::chrono::steady_clock> next_time) {
-            // 调用io_context.run()函数
-            io_context.run();
-            // 使用std::this_thread::sleep_until函数，让当前线程休眠到下一次调用的时间
-            std::this_thread::sleep_until(next_time);
-            // 递归调用自身，并更新下一次调用的时间为三秒后，实现循环执行
-            run_io(next_time + std::chrono::seconds(3));
-        };
-
-        // 调用一次lambda表达式，并传入当前时间作为参数，启动定时器
-        run_io(std::chrono::steady_clock::now());
-
 
         while (1) // 用一个循环来处理多个请求
         {
@@ -220,10 +208,16 @@ int main() {
                 // 创建一个stream对象，用于进行SSL/TLS加密的读写操作
                 asio::ssl::stream<asio::ip::tcp::socket> stream{ std::move(socket), ssl_ctx };
                 // 设置SSL/TLS握手的验证模式和回调函数，以处理可能的证书错误
-                //这边暂时禁用了证书验证
-                stream.set_verify_mode(asio::ssl::verify_none);
-                //                stream.set_verify_callback(asio::ssl::rfc2818_verification("www.google.de"));
-                                // 执行SSL/TLS握手操作
+
+
+                //禁用证书验证 要把217行和218行注释掉 然后把下面这行取消注释
+                //stream.set_verify_mode(asio::ssl::verify_none);
+
+                //启用证书验证
+                stream.set_verify_mode(asio::ssl::verify_peer);
+                stream.set_verify_callback(asio::ssl::rfc2818_verification("ms.example.com"));
+
+                // 执行SSL/TLS握手操作
                 stream.handshake(asio::ssl::stream_base::server);
                 // 创建一个缓冲区对象，用于存储接收到的数据
                 beast::flat_buffer buffer;
@@ -267,6 +261,45 @@ int main() {
             io_context.run();
 
         }
+
+        // 创建一个thread对象，用于执行io_context.run()函数
+        std::thread t{[&io]() { io_context.run(); }};
+
+        // 定义一个尾递归的lambda表达式，用于每三秒调用一次io_context.run()函数
+        std::function<void(std::chrono::time_point<std::chrono::steady_clock>)> run_io;
+        run_io = [&](std::chrono::time_point<std::chrono::steady_clock> next_time) {
+            // 调用io_context.run()函数
+            io_context.run();
+            // 使用std::this_thread::sleep_until函数，让当前线程休眠到下一次调用的时间
+            std::this_thread::sleep_until(next_time);
+            // 递归调用自身，并更新下一次调用的时间为三秒后，实现循环执行
+            run_io(next_time + std::chrono::seconds(3));
+        };
+
+        // 调用一次lambda表达式，并传入当前时间作为参数，启动定时器
+        run_io(std::chrono::steady_clock::now());
+
+        // 定义一个互斥锁对象，用于保护条件变量
+        std::mutex mtx;
+        // 定义一个条件变量对象，用于让线程等待通知
+        std::condition_variable cv;
+        // 定义一个布尔变量，用于表示线程是否应该继续运行
+        bool running = true;
+
+        // 使用一个无限循环来保持线程运行
+        while (true) {
+            // 在这里可以做一些其他的事情，或者什么都不做
+            // ...
+
+            // 使用互斥锁和条件变量来让线程等待通知，或者直到running变为false
+            std::unique_lock<std::mutex> lock(mtx);
+            cv.wait(lock, [&running]() { return !running; });
+            if (!running) {
+                break; // 如果running为false，跳出循环，结束线程
+            }
+        }
+
+
         acceptor.close(); // 在服务器终止时关闭acceptor对象
 
     }
