@@ -26,7 +26,7 @@ const string key_file = "cert.key"; // key文件的路径
 const bool enable_verifi = true;
 const string cert_verifi = "ms.example.com";//证书验证的域名
 //设置监听服务器
-const string listen_address = "127.0.0.1"; // 监听地址
+const string listen_address = "0.0.0.0"; // 监听地址
 const int listen_port = 443; // 监听端口
 
 // 创建一个全局变量，用于存储添加的json数据
