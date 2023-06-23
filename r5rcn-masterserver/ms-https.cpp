@@ -39,7 +39,8 @@ boost::asio::io_context io_context;
 boost::asio::deadline_timer global_timer(io_context);
 
 // 处理添加json数据的请求的函数
-void handle_add_json_request(http::request<http::string_body>& req, http::response<http::string_body>& res) {
+void handle_add_json_request(http::request<http::string_body>& req, http::response<http::string_body>& res, std::string ip_address) {
+    string ip = ip_address;
     // 从请求中获取json数据
     json data = json::parse(req.body());
     // 打印json数据
@@ -71,7 +72,7 @@ void handle_add_json_request(http::request<http::string_body>& req, http::respon
             bool equal = true;
 
             // 遍历指定的参数列表，并比较每个参数的值是否相等
-            for (const auto& param : { "cachedId", "checksum", "description", "hidden", "ip", "key", "map", "maxPlayers", "name", "playlist", "port", "publicRef", "version" }) {
+            for (const auto& param : { "cachedId", "checksum", "description", "hidden", "key", "map", "maxPlayers", "name", "playlist", "port", "publicRef", "version" }) {
                 if (j[param].dump() != data[param].dump()) { // 使用dump()方法来将值转换为字符串并比较
                     equal = false;
                     break;
@@ -83,6 +84,7 @@ void handle_add_json_request(http::request<http::string_body>& req, http::respon
                 j["playerCount"] = data["playerCount"];
                 j["timeStamp"] = data["timeStamp"];
                 j["lastUpdate"] = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count(); // 添加lastUpdate参数，并赋值为当前时间戳
+                j["ip"] = ip;
                 found = true;
                 break;
             }
@@ -326,7 +328,7 @@ int main() {
                 asio::ssl::stream<asio::ip::tcp::socket> stream{ std::move(socket), ssl_ctx };
                 // 设置SSL/TLS握手的验证模式和回调函数，以处理可能的证书错误
 
-                if (enable_verifi){
+                if (enable_verifi){                //启用证书验证
                                stream.set_verify_mode(asio::ssl::verify_peer);
                                stream.set_verify_callback(asio::ssl::rfc2818_verification(cert_verifi));
                 }
@@ -334,9 +336,6 @@ int main() {
                     //禁用证书验证
                     stream.set_verify_mode(asio::ssl::verify_none);
                 }
-
-
-                //启用证书验证
 
 
                 // 执行SSL/TLS握手操作
@@ -356,7 +355,10 @@ int main() {
                 }
                 // 判断请求的目标是否为/servers/add，如果是，则调用处理添加json数据的请求的函数，否则继续判断
                 else if (req.target() == "/servers/add") {
-                    handle_add_json_request(req, res);
+                    // 从请求中获取远程端点的地址和端口，并转换为字符串
+                    std::string ip_address = stream.lowest_layer().remote_endpoint().address().to_string();
+                    // 将ip_address作为参数传递给handle_add_json_request函数
+                    handle_add_json_request(req, res, ip_address);
                 }
                 // 判断请求的目标是否为/banlist，如果是，则调用处理访问管理封禁系统的函数，否则继续判断
                 else if (req.target() == "/banlist") {
