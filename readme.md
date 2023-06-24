@@ -6,9 +6,9 @@
 
 你需要以下库才能编译
 
-`boost(包括boost asio uuid)
-aisonlohmann json
-openssl-win64`
+`boost(包括boost asio uuid)`
+`aisonlohmann json`
+`openssl-win64`
 
 关于这些库 我推荐你用vcpkg来安装 将鼠标放在引用的头文件上vs2022会给你生成vcpkg安装命令
 
