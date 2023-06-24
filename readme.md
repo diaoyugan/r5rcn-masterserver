@@ -2,20 +2,17 @@
 
 还是有些bug的
 
-* 服务器离线后可能不会从服务器列表删除
-* 尚无私人房间功能
-
 ###### 编译
 
 你需要以下库才能编译
 
-boost(包括boost asio)
+`boost(包括boost asio uuid)
 aisonlohmann json
-openssl-win64
+openssl-win64`
 
-关于这些库 我推荐你用vcpkg来安装
+关于这些库 我推荐你用vcpkg来安装 将鼠标放在引用的头文件上vs2022会给你生成vcpkg安装命令
+
 详见[这里](https://vcpkg.io)
 
-然后打开项目文件夹里的sln文件就可以了
 
 目前是开发早期
