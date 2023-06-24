@@ -8,6 +8,9 @@
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
 #include <boost/asio/ssl.hpp>
+#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_generators.hpp>
+#include <boost/uuid/uuid_io.hpp>
 #include <nlohmann/json.hpp>
 
 
@@ -17,26 +20,206 @@ namespace http = beast::http;
 using json = nlohmann::json;
 using namespace std;
 
-//设置banlist的路径
-const string banlist_file = "banlist.json"; // banlist文件的路径
-//设置证书路径
-const string crt_file = "cert.crt"; // crt文件的路径
-const string key_file = "cert.key"; // key文件的路径
-//是否启用证书验证
-const bool enable_verifi = true;
-const string cert_verifi = "ms.example.com";//证书验证的域名
-//设置监听服务器
-const string listen_address = "0.0.0.0"; // 监听地址
-const int listen_port = 443; // 监听端口
+// 声明设置的变量
+string banlist_file;
+string cret_file;
+string key_file;
+bool enable_verifi;
+string cert_verifi;
+string listen_address;
+int listen_port;
 
-// 创建一个全局变量，用于存储添加的json数据
+// 创建一个全局变量，用于存储添加的服务器数据
 std::vector<json> json_data;
+// 创建一个全局变量，用于存储生成的服务器token以及其服务器
+std::vector<json> json_token;
 
 // 创建一个io_context对象
 boost::asio::io_context io_context;
 // 创建一个全局变量，用于存储定时器对象
 // 改名为global_timer，避免与main函数中的局部变量冲突
 boost::asio::deadline_timer global_timer(io_context);
+
+// 创建一个io_context对象
+boost::asio::io_context io_pcontext;
+//我还是害怕会冲突
+boost::asio::deadline_timer pglobal_timer(io_pcontext);
+
+// 定义一个函数，根据key和value来给变量赋值
+void store_line(string key, string value) {
+    if (key == "banlist_file") {
+        banlist_file = value;
+    }
+    else if (key == "cret_file") {
+        cret_file = value;
+    }
+    else if (key == "key_file") {
+        key_file = value;
+    }
+    else if (key == "enable_verifi") {
+        enable_verifi = (value == "true");
+    }
+    else if (key == "cert_verifi") {
+        cert_verifi = value;
+    }
+    else if (key == "listen_address") {
+        listen_address = value;
+    }
+    else if (key == "listen_port") {
+        listen_port = stoi(value);
+    }
+    else {
+        cout << "Unknown setting: " << key << endl;
+    }
+}
+
+// 定义一个函数，从文件中读取设置
+void read_settings(string filename) {
+    ifstream file(filename); // 创建一个文件流对象
+    if (file.is_open()) { // 检查文件是否打开成功
+        string line; // 用来存储每一行的内容
+        while (getline(file, line)) { // 循环读取每一行
+            istringstream is_line(line); // 创建一个字符串流对象
+            string key; // 用来存储键名
+            if (getline(is_line, key, '=')) { // 用等号作为分隔符，读取键名
+                string value; // 用来存储键值
+                if (getline(is_line, value)) { // 读取键值
+                    if (!key.empty() && key[0] != '#') { // 检查键名是否为空或以#开头，如果是则忽略这一行
+                        store_line(key, value); // 调用函数，给变量赋值
+                    }
+                }
+            }
+        }
+        file.close(); // 关闭文件
+    }
+    else {
+        cout << "Unable to open file: " << filename << endl;
+    }
+}
+
+// 定义一个函数，生成一个默认的设置文件
+void create_default_settings(string filename) {
+    ofstream file(filename); // 创建一个文件流对象
+    if (file.is_open()) { // 检查文件是否打开成功
+        file << "#如果要使用反斜线 请务必打两个 不然你懂的 对了 可以用绝对路径或者相对路径\n";
+        file << "\n";
+        file << "\n";
+        file << "#封禁列表文件\n";
+        file << "banlist_file=banlist.json\n"; 
+        file << "\n";
+        file << "#证书文件\n";
+        file << "cret_file=cret.crt\n";
+        file << "\n";
+        file << "#证书私钥\n";
+        file << "key_file=cret.key\n";
+        file << "\n";
+        file << "#是否开启证书验证 true为开 false为关\n";
+        file << "enable_verifi=true\n";
+        file << "\n";
+        file << "#验证证书的地址（证书的地址） 如果你没开验证 可以忽略这一行\n";
+        file << "cert_verifi=ms.example.com\n";
+        file << "\n";
+        file << "#监听ip 一般不用改\n";
+        file << "listen_address=0.0.0.0\n";
+        file << "\n";
+        file << "#监听端口 随你 我推荐443 不然sdk那边可不好搞\n";
+        file << "listen_port=443\n";
+        file.close(); // 关闭文件
+    }
+    else {
+        cout << "Unable to create file: " << filename << endl;
+    }
+}
+
+// 添加私人服务器的函数
+void add_private_server(http::request<http::string_body>& req, http::response<http::string_body>& res, std::string ip_address) {
+    // 从请求中获取json数据
+    json data = json::parse(req.body());
+    // 打印json数据
+    std::cout << "Received private server data: " << data << std::endl;
+    // 创建一个响应对象
+    res.version(11); // HTTP 1.1
+    res.result(http::status::ok); // 200 OK
+    res.set(http::field::content_type, "application/json"); // 设置响应内容类型为json
+    json response;
+
+    // 使用boost::uuids库来生成唯一的token，并将其转换为字符串
+    boost::uuids::uuid uuid = boost::uuids::random_generator()();
+    std::string token = boost::uuids::to_string(uuid);
+
+    // - 在存储的数据中查找是否有与接收到的数据相匹配的内容，并更新或添加
+
+// 定义一个标志变量，表示是否找到匹配的内容
+    bool found = false;
+    //声明一下后面要使用的restoken
+    std::string restoken = "";
+
+    // 遍历存储的数据中的每个元素
+    for (auto& j : json_token) {
+        // 定义一个标志变量，表示是否所有指定的参数都相等
+        bool equal = true;
+
+        // 遍历指定的参数列表，并比较每个参数的值是否相等
+        for (const auto& param : { "cachedId", "checksum", "description", "hidden", "key", "map", "maxPlayers", "name", "playlist", "port", "publicRef", "version" }) {
+            if (j[param].dump() != data[param].dump()) { // 使用dump()方法来将值转换为字符串并比较
+                equal = false;
+                break;
+            }
+        }
+
+        // 如果所有指定的参数都相等，则更新其他参数的值，并设置found为true
+        if (equal) {
+            j["playerCount"] = data["playerCount"];
+            j["timeStamp"] = data["timeStamp"];
+            j["lastUpdate"] = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count(); // 添加lastUpdate参数，并赋值为当前时间戳
+            j["ip"] = ip_address;
+            restoken = j["token"];
+            found = true;
+            break;
+            std::cout << json_token << std::endl;
+        }
+    }
+
+    // 如果没有找到匹配的内容，则将接收到的数据添加到存储中
+    if (!found) {
+        data["token"] = token;
+        json_token.push_back(data);
+        std::cout << json_token << std::endl;
+    }
+
+    // 将token作为响应的内容返回给客户端
+    response["success"] = true;
+    response["token"] = restoken;
+    res.body() = response.dump();
+    std::cout << "Sendback create server result: " << response << std::endl;
+
+    // 设置定时器的超时时间为1秒，并将io_context对象作为参数传递给构造函数
+    pglobal_timer.expires_from_now(boost::posix_time::seconds(1));
+
+    // 设置定时器到期时执行的回调函数，删除存储的数据中超过3秒没有更新过的内容
+    pglobal_timer.async_wait([](const boost::system::error_code& ec) {
+        if (!ec) { // 没有错误发生
+            std::cout << "Timer expired" << std::endl;
+            // 获取当前时间戳，使用long long类型来表示
+            long long now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count(); 
+            //在存储的数据中查找超过3秒没有更新过的内容，并删除
+            auto it = std::remove_if(json_token.begin(), json_token.end(), [now](const json& j) {
+                return now - j["timeStamp"].get<long long>() > 3000; // 使用timeStamp参数来判断是否超时
+                });
+
+            if (it != json_token.end()) {
+                std::cout << "Deleted json data: " << *it << std::endl;
+                json_token.erase(it, json_token.end());
+                std::cout << json_token << std::endl;
+            }
+        }
+        else { // 有错误发生，并打印错误信息
+            std::cerr << "Error: " << ec.message() << std::endl;
+        }
+        });
+}
+
+
 
 // 处理添加json数据的请求的函数
 void handle_add_json_request(http::request<http::string_body>& req, http::response<http::string_body>& res, std::string ip_address) {
@@ -55,6 +238,16 @@ void handle_add_json_request(http::request<http::string_body>& req, http::respon
     res.set(http::field::content_type, "application/json"); // 设置响应内容类型为json
     json response;
 
+    // 从json数据中获取hidden参数
+// 检查data中是否有"hidden"键
+    if (data.contains("hidden")) {
+        bool hidden = data.at("hidden");
+        // 判断hidden参数是否为true，如果是，则使其添加到私人服务器系统，否则添加到原本的服务器列表
+        if (hidden == true) {
+            add_private_server(req, res,ip);
+        }
+        else
+  
     // 判断no_response是否为真，否则按照原来的逻辑设置响应内容
     if (no_response) {
         response["success"] = true;
@@ -90,7 +283,7 @@ void handle_add_json_request(http::request<http::string_body>& req, http::respon
             }
         }
 
-        // 如果没有找到匹配的内容，则将接收到的数据添加到存储中，并添加lastUpdate参数
+        // 如果没有找到匹配的内容，则将接收到的数据添加到存储中
         if (!found) {
             json_data.push_back(data);
         }
@@ -125,7 +318,11 @@ void handle_add_json_request(http::request<http::string_body>& req, http::respon
             }
             });
 
-
+        response["success"] = true;
+        response["token"] = nullptr; // 没有token
+        // 将json对象转换为字符串，并设置为响应的body
+        res.body() = response.dump();
+        std::cout << "Sendback create server result: " << response << std::endl;
 
         // - 将hidden参数的值转换为字符串，并替换原来的hidden属性的值
 
@@ -136,12 +333,13 @@ void handle_add_json_request(http::request<http::string_body>& req, http::respon
         data["hidden"] = hidden_str;
 
     }
+    }
     else {
         response["success"] = false;
         response["error"] = "Missing required fields."; // 缺少需要的内容
         // 将json对象转换为字符串，并设置为响应的body
         res.body() = response.dump();
-        std::cout << "Send json data: " << response << std::endl;
+        std::cout << "Sendback create server result: " << response << std::endl;
     }
 
 }
@@ -201,7 +399,12 @@ json read_banlist() {
     ifstream input(banlist_file); // 打开文件
     if (!input) { // 检查文件是否存在
         cerr << "Error: cannot open " << banlist_file << endl;
-        exit(1);
+        ofstream file(banlist_file); // 创建一个文件流对象
+        if (file.is_open()) { // 检查文件是否打开成功
+            file << "{";
+            file << "}";
+            file.close(); // 关闭文件
+        }
     }
     json banlist; // 创建一个json对象
     input >> banlist; // 从文件中读取json数据
@@ -296,20 +499,67 @@ void handle_banlist_bulkCheck(http::request<http::string_body>& req, http::respo
     std::cout << "Send banlist bulkCheck data: " << response << std::endl;
 }
 
+// 根据token参数来查询私人服务器的函数
+void handle_get_server_byToken(http::request<http::string_body>& req, http::response<http::string_body>& res) {
+    // 创建一个响应对象
+    res.version(11); // HTTP 1.1
+    res.set(http::field::content_type, "application/json"); // 设置响应内容类型为json
+    // 创建一个json对象，作为响应内容
+    json response;
+    // 从请求中获取json数据
+    json data = json::parse(req.body());
+    // 从json数据中获取token参数，并转换为字符串类型
+    std::string token = data.at("token").dump();
+    std::cout << "reqtoken:" << token << std::endl;
+    std::cout << json_token << std::endl;
+    // 在json_token中查找是否有与token参数相匹配的内容，并返回给客户端
+    auto it = std::find_if(json_token.begin(), json_token.end(), [token](const json& j) {
+        return j["token"].dump() == token; // 使用"token"作为属性名，并比较属性值是否相等
+        });
+
+
+    if (it != json_token.end()) { // 如果找到了匹配的内容
+        res.result(http::status::ok); // 200 OK
+        response["success"] = true;
+        response["server"] = *it; // 将匹配的内容作为响应内容的server属性
+        response["server"]["hidden"] = response["server"]["hidden"].dump(); // 将hidden属性的值转换为字符串类型
+    }
+    else { // 如果没有找到匹配的内容
+        res.result(http::status::not_found); // 404 Not Found
+        response["success"] = false;
+        response["error"] = "No server found with the given token"; // 设置错误信息
+    }
+
+    res.body() = response.dump(); // 将响应内容转换为字符串并设置为响应体
+}
+
+
 
 //主函数
 int main() {
+    string filename = "settings.txt"; // 设置文件的名字
+    ifstream test(filename); // 尝试打开文件
+    if (test.good()) { // 检查文件是否存在
+        test.close(); // 关闭文件
+        read_settings(filename); // 从文件中读取设置
+    }
+    else {
+        test.close(); // 关闭文件
+        create_default_settings(filename); // 生成一个默认的设置文件
+        cout << "A default settings file has been created.\n"; // 输出提示信息
+        read_settings(filename); // 从文件中读取设置
+    }
     try {
         // 创建一个io_context对象，用于管理异步操作
         asio::io_context io;
         // 创建一个ssl_context对象，用于管理SSL/TLS加密相关的设置
         asio::ssl::context ssl_ctx{ asio::ssl::context::sslv23 };
-        // 加载证书文件和私钥文件，这里假设文件名分别为cert.crt和cert.key
-        ssl_ctx.use_certificate_chain_file(crt_file);
+        // 加载证书文件和私钥文件，这里从全局变量获取
+        ssl_ctx.use_certificate_chain_file(cret_file);
         ssl_ctx.use_private_key_file(key_file, asio::ssl::context::pem);
-        // 创建一个ip地址对象，表示监听的地址，这里使用ipv4的回环地址
+        // 创建一个ip地址对象，表示监听的地址
         asio::ip::address address = asio::ip::make_address(listen_address);
-        // 创建一个端口号对象，表示监听的端口，这里使用443端口
+        // 创建一个端口号对象，表示监听的端口
         unsigned short port = static_cast<unsigned short>(listen_port);
         // 创建一个endpoint对象，表示监听的地址和端口的组合
         asio::ip::tcp::endpoint endpoint{ address, port };
@@ -361,8 +611,12 @@ int main() {
                     handle_add_json_request(req, res, ip_address);
                 }
                 // 判断请求的目标是否为/banlist，如果是，则调用处理访问管理封禁系统的函数，否则继续判断
-                else if (req.target() == "/banlist") {
-                    handle_banlist_system_access(req, res);
+                //else if (req.target() == "/banlist") {
+                //    handle_banlist_system_access(req, res);
+                //}
+                 // 判断请求的目标是否为/server/byToken，如果是，则调用处理访问通过token获取服务器的函数，否则继续判断
+                else if (req.target() == "/server/byToken") {
+                    handle_get_server_byToken(req, res);
                 }
                 // 判断请求的目标是否为/banlist/isBanned，如果是，则调用处理检查玩家是否被封禁的函数，否则继续判断
                 else if (req.target() == "/banlist/isBanned") {
@@ -395,17 +649,19 @@ int main() {
             }
             io.run(); // 运行io_context对象直到所有异步操作完成
             io_context.run();
-
+            io_pcontext.run();
         }
 
         // 创建一个thread对象，用于执行io_context.run()函数
         std::thread t{[&io]() { io_context.run(); }};
 
-        // 定义一个尾递归的lambda表达式，用于每三秒调用一次io_context.run()函数
+        // 定义一个尾递归的lambda表达式，用于每三秒调用一次io_context.run()和io_pcontext.run();函数
         std::function<void(std::chrono::time_point<std::chrono::steady_clock>)> run_io;
         run_io = [&](std::chrono::time_point<std::chrono::steady_clock> next_time) {
             // 调用io_context.run()函数
             io_context.run();
+            // 调用io_pcontext.run()函数
+            io_pcontext.run();
             // 使用std::this_thread::sleep_until函数，让当前线程休眠到下一次调用的时间
             std::this_thread::sleep_until(next_time);
             // 递归调用自身，并更新下一次调用的时间为三秒后，实现循环执行
