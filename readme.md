@@ -6,7 +6,7 @@
 
 你需要以下库才能编译
 
-`boost(包括boost asio uuid)`
+`boost(包括asio uuid)`
 `aisonlohmann json`
 `openssl-win64`
 
