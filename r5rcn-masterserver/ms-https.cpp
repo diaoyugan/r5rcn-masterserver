@@ -5,6 +5,8 @@
 #include <fstream>
 #include <vector>
 #include <string> 
+#include <chrono>
+#include <thread>
 #include <time.h>
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
@@ -545,7 +547,7 @@ void handle_get_server_byToken(http::request<http::string_body>& req, http::resp
 
 
 
-//主函数
+// 主函数
 int main() {
     string filename = "settings.txt"; // 设置文件的名字
     ifstream test(filename); // 尝试打开文件
@@ -599,13 +601,69 @@ int main() {
 
 
                 // 执行SSL/TLS握手操作
-                stream.handshake(asio::ssl::stream_base::server);
+                std::future<bool> handshake_future = std::async(std::launch::async, [&stream]() {
+                    stream.handshake(asio::ssl::stream_base::server);
+                    return true;
+                    });
+
+
+                // 设置超时时间为3秒
+                std::chrono::seconds timeout(3);
+                // 等待握手操作完成或超时
+                if (handshake_future.wait_for(timeout) != std::future_status::ready) {
+                    std::cout << "Handshake timeout" << std::endl;
+                    continue;
+                }
+
                 // 创建一个缓冲区对象，用于存储接收到的数据
                 beast::flat_buffer buffer;
                 // 创建一个请求对象，用于解析接收到的HTTP请求
                 http::request<http::string_body> req;
+                // 判断请求是否存在User-Agent字段
+                if (req.find(http::field::user_agent) != req.end()) {
+                    // 发送拒绝响应给请求方
+                    http::response<http::string_body> res;
+                    res.version(11); // HTTP 1.1
+                    res.result(http::status::forbidden); // 403 Forbidden
+                    res.set(http::field::content_type, "text/plain"); // 设置响应内容类型为纯文本
+                    res.body() = "Access forbidden"; // 设置响应内容为拒绝访问信息
+
+                    // 发送HTTP响应，并关闭连接
+                    std::future<std::size_t> write_future = std::async(std::launch::async, [&stream, &res]() {
+                        return http::write(stream, res);
+                        });
+
+                    // 等待写入操作完成或超时
+                    if (write_future.wait_for(timeout) != std::future_status::ready) {
+                        std::cout << "Write response timeout" << std::endl;
+                        continue;
+                    }
+
+                    // 关闭连接
+                    beast::error_code ec;
+                    stream.shutdown(ec);
+                    if (ec) {
+                        std::cerr << getTime() << "Error: " << ec.message() << std::endl;
+                    }
+                    socket.close(ec);
+                    if (ec) {
+                        std::cerr << getTime() << "Error: " << ec.message() << std::endl;
+                    }
+
+                    continue; // 继续下一次循环，等待新的连接请求
+                }
+
                 // 读取HTTP请求，并将其存储到请求对象中
-                http::read(stream, buffer, req);
+                std::future<std::size_t> read_future = std::async(std::launch::async, [&stream, &buffer, &req]() {
+                    return http::read(stream, buffer, req);
+                    });
+
+                // 等待读取操作完成或超时
+                if (read_future.wait_for(timeout) != std::future_status::ready) {
+                    std::cout << "Read request timeout" << std::endl;
+                    continue;
+                }
+
                 std::cout << getTime() << "Received request: " << req << std::endl;
                 // 创建一个响应对象，用于发送HTTP响应
                 http::response<http::string_body> res;
@@ -642,8 +700,18 @@ int main() {
                     res.set(http::field::content_type, "text/plain"); // 设置响应内容类型为纯文本
                     res.body() = "The requested resource was not found"; // 设置响应内容为错误信息
                 }
+
                 // 发送HTTP响应，并关闭连接
-                http::write(stream, res);
+                std::future<std::size_t> write_future = std::async(std::launch::async, [&stream, &res]() {
+                    return http::write(stream, res);
+                    });
+
+                // 等待写入操作完成或超时
+                if (write_future.wait_for(timeout) != std::future_status::ready) {
+                    std::cout << "Write response timeout" << std::endl;
+                    continue;
+                }
+
                 beast::error_code ec;
                 stream.shutdown(ec);
                 if (ec) { // 检查是否有错误发生，并打印错误信息
@@ -657,9 +725,6 @@ int main() {
             catch (std::exception& e) { // 在catch块中打印异常信息
                 std::cerr << getTime() << "Exception: " << e.what() << std::endl;
             }
-            io.run(); // 运行io_context对象直到所有异步操作完成
-            io_context.run();
-            io_pcontext.run();
         }
 
         // 创建一个thread对象，用于执行io_context.run()函数
@@ -710,3 +775,4 @@ int main() {
     }
     return 0;
 }
+
