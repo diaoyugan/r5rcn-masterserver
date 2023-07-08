@@ -1,6 +1,7 @@
 ﻿// 这个版本使用SSL/TLS加密，支持https协议
 
 #define _CRT_SECURE_NO_WARNINGS //VS中必须定义,否则报错
+#include <atomic>
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -220,7 +221,7 @@ void add_private_server(http::request<http::string_body>& req, http::response<ht
                 });
 
             if (it != json_token.end()) {
-                std::cout << getTime() << "Deleted json data: " << *it << std::endl;
+                std::cout << getTime() << "Deleted private server data: " << *it << std::endl;
                 json_token.erase(it, json_token.end());
                 std::cout << json_token << std::endl;
             }
@@ -545,7 +546,17 @@ void handle_get_server_byToken(http::request<http::string_body>& req, http::resp
     res.body() = response.dump(); // 将响应内容转换为字符串并设置为响应体
 }
 
+std::atomic<bool> keepRunning{ true };
 
+void ioThread(asio::io_context& io) {
+    while (keepRunning) {
+        io_pcontext.run();
+        io_context.run();
+        cout << getTime() << "Try To Delete Timeout Server\n"; // 输出提示信息
+        io.restart();
+        std::this_thread::sleep_for(std::chrono::seconds(3));
+    }
+}
 
 // 主函数
 int main() {
@@ -579,6 +590,8 @@ int main() {
         asio::ip::tcp::acceptor acceptor{ io, endpoint };
         // 等待客户端的连接请求
         std::cout << "Listening on " << endpoint << std::endl;
+
+        std::thread io_thread(ioThread, std::ref(io));
 
         while (1) // 用一个循环来处理多个请求
         {
@@ -726,46 +739,6 @@ int main() {
                 std::cerr << getTime() << "Exception: " << e.what() << std::endl;
             }
         }
-
-        // 创建一个thread对象，用于执行io_context.run()函数
-        std::thread t{[&io]() { io_context.run(); }};
-
-        // 定义一个尾递归的lambda表达式，用于每三秒调用一次io_context.run()和io_pcontext.run();函数
-        std::function<void(std::chrono::time_point<std::chrono::steady_clock>)> run_io;
-        run_io = [&](std::chrono::time_point<std::chrono::steady_clock> next_time) {
-            // 调用io_context.run()函数
-            io_context.run();
-            // 调用io_pcontext.run()函数
-            io_pcontext.run();
-            // 使用std::this_thread::sleep_until函数，让当前线程休眠到下一次调用的时间
-            std::this_thread::sleep_until(next_time);
-            // 递归调用自身，并更新下一次调用的时间为三秒后，实现循环执行
-            run_io(next_time + std::chrono::seconds(3));
-        };
-
-        // 调用一次lambda表达式，并传入当前时间作为参数，启动定时器
-        run_io(std::chrono::steady_clock::now());
-
-        // 定义一个互斥锁对象，用于保护条件变量
-        std::mutex mtx;
-        // 定义一个条件变量对象，用于让线程等待通知
-        std::condition_variable cv;
-        // 定义一个布尔变量，用于表示线程是否应该继续运行
-        bool running = true;
-
-        // 使用一个无限循环来保持线程运行
-        while (true) {
-            // 在这里可以做一些其他的事情，或者什么都不做
-            // ...
-
-            // 使用互斥锁和条件变量来让线程等待通知，或者直到running变为false
-            std::unique_lock<std::mutex> lock(mtx);
-            cv.wait(lock, [&running]() { return !running; });
-            if (!running) {
-                break; // 如果running为false，跳出循环，结束线程
-            }
-        }
-
 
         acceptor.close(); // 在服务器终止时关闭acceptor对象
 
