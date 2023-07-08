@@ -357,13 +357,12 @@ void handle_add_json_request(http::request<http::string_body>& req, http::respon
 
 }
 
-
-// 处理获取json数据的请求的函数
 void handle_get_json_request(http::request<http::string_body>& req, http::response<http::string_body>& res) {
     // 创建一个响应对象
     res.version(11); // HTTP 1.1
     res.result(http::status::ok); // 200 OK
     res.set(http::field::content_type, "application/json"); // 设置响应内容类型为json
+
     // 创建一个json对象，作为响应内容
     json response;
     // 从请求中获取json数据
@@ -371,30 +370,35 @@ void handle_get_json_request(http::request<http::string_body>& req, http::respon
     // 从json数据中获取version参数，并转换为字符串类型
     std::string version = data.at("version").get<std::string>();
 
-    // 从json数据中获取version参数，并转换为字符串类型
     // 检查data中是否有"version"键，如果没有，直接返回一个错误信息给请求者
     if (data.contains("version")) {
         std::string version = data.at("version").get<std::string>();
         // 判断version参数是否为VGameSDK008，如果是，则设置success为true，否则设置success为false和error信息
         if (version == "VGameSDK008") {
             response["success"] = true;
-            std::cout << json_data << std::endl;
         }
         else {
             response["success"] = false;
             response["error"] = "Your SDK version is unsupported, please update the SDK.";
-            std::cout << json_data << std::endl;
         }
     }
     else {
         response["success"] = false;
         response["error"] = "Missing field.";
-        std::cout << json_data << std::endl;
     }
 
+    // 获取服务器列表
+    json servers = json_data;
 
-    // 将存储的json数据作为servers字段的值
-    response["servers"] = json_data;
+    // 按playerCount字段从大到小排序
+    std::sort(servers.begin(), servers.end(), [](const json& a, const json& b) {
+        int playerCountA = std::stoi(a["playerCount"].get<std::string>());
+        int playerCountB = std::stoi(b["playerCount"].get<std::string>());
+        return playerCountA > playerCountB;
+        });
+
+    // 将排序后的服务器列表存储到响应结果中
+    response["servers"] = servers;
     // 遍历返回结果中的servers字段的每个元素
     for (auto& j : response["servers"]) {
         // 调用dump()方法，将hidden参数的值转换为字符串，并赋给一个新变量hidden_str
@@ -402,6 +406,7 @@ void handle_get_json_request(http::request<http::string_body>& req, http::respon
         // 将hidden_str作为属性值替换原来的hidden属性的值
         j["hidden"] = hidden_str;
     }
+
     // 将json对象转换为字符串，并设置为响应的body
     res.body() = response.dump();
 }
