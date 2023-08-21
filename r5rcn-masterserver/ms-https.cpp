@@ -26,11 +26,12 @@ using namespace std;
 
 // 声明设置的变量
 string banlist_file;
-string cret_file;
+string cert_file;
 string key_file;
 bool enable_verifi;
 string cert_verifi;
 string listen_address;
+string SDK_version;
 int listen_port;
 
 // 创建一个全局变量，用于存储添加的服务器数据
@@ -49,7 +50,7 @@ boost::asio::io_context io_pcontext;
 //我还是害怕会冲突
 boost::asio::deadline_timer pglobal_timer(io_pcontext);
 
-string getTime()
+string get_time()
 {
     time_t timep;
     time(&timep); //获取time_t类型的当前时间
@@ -63,8 +64,8 @@ void store_line(string key, string value) {
     if (key == "banlist_file") {
         banlist_file = value;
     }
-    else if (key == "cret_file") {
-        cret_file = value;
+    else if (key == "cert_file") {
+        cert_file = value;
     }
     else if (key == "key_file") {
         key_file = value;
@@ -80,6 +81,9 @@ void store_line(string key, string value) {
     }
     else if (key == "listen_port") {
         listen_port = stoi(value);
+    }
+        else if (key == "SDK_version") {
+        SDK_version = stoi(value);
     }
     else {
         cout << "Unknown setting: " << key << endl;
@@ -106,7 +110,7 @@ void read_settings(string filename) {
         file.close(); // 关闭文件
     }
     else {
-        cout << getTime() << "Unable to open file: " << filename << endl;
+        cout << get_time() << "Unable to open file: " << filename << endl;
     }
 }
 
@@ -114,17 +118,22 @@ void read_settings(string filename) {
 void create_default_settings(string filename) {
     ofstream file(filename); // 创建一个文件流对象
     if (file.is_open()) { // 检查文件是否打开成功
-        file << "#如果要使用反斜线 请务必打两个 不然你懂的 对了 可以用绝对路径或者相对路径\n";
+        file << "#如果你在windows系统上要使用反斜线，请务必打两个，不然你懂的 对了，可以用绝对路径或者相对路径\n";
+        file << "#本配置文件只会在ms的工作目录生成和读取 请留意\n";
+        file << "#banlist.json文件会在第一次需要使用时生成，你可以自己创建 和本文件相同 在工作目录生成和读取\n";
         file << "\n";
+        file << "\n";
+        file << "#请求者的SDK版本 用于判断对方客户端或服务端是否需要更新\n";
+        file << "SDK_version=VGameSDK008\n";
         file << "\n";
         file << "#封禁列表文件\n";
         file << "banlist_file=banlist.json\n";
         file << "\n";
         file << "#证书文件\n";
-        file << "cret_file=cret.crt\n";
+        file << "cert_file=cert.crt\n";
         file << "\n";
         file << "#证书私钥\n";
-        file << "key_file=cret.key\n";
+        file << "key_file=cert.key\n";
         file << "\n";
         file << "#是否开启证书验证 true为开 false为关\n";
         file << "enable_verifi=true\n";
@@ -140,7 +149,7 @@ void create_default_settings(string filename) {
         file.close(); // 关闭文件
     }
     else {
-        cout << getTime() << "Unable to create file: " << filename << endl;
+        cout << get_time() << "Unable to create file: " << filename << endl;
     }
 }
 
@@ -149,7 +158,7 @@ void add_private_server(http::request<http::string_body>& req, http::response<ht
     // 从请求中获取json数据
     json data = json::parse(req.body());
     // 打印json数据
-    std::cout << getTime() << "Received private server data: " << data << std::endl;
+    std::cout << get_time() << "Received private server data: " << data << std::endl;
     // 创建一个响应对象
     res.version(11); // HTTP 1.1
     res.result(http::status::ok); // 200 OK
@@ -204,7 +213,7 @@ void add_private_server(http::request<http::string_body>& req, http::response<ht
     response["success"] = true;
     response["token"] = restoken;
     res.body() = response.dump();
-    std::cout << getTime() << "Sendback create server result: " << response << std::endl;
+    std::cout << get_time() << "Sendback create server result: " << response << std::endl;
 
     // 设置定时器的超时时间为1秒，并将io_context对象作为参数传递给构造函数
     pglobal_timer.expires_from_now(boost::posix_time::seconds(1));
@@ -221,26 +230,26 @@ void add_private_server(http::request<http::string_body>& req, http::response<ht
                 });
 
             if (it != json_token.end()) {
-                std::cout << getTime() << "Deleted private server data: " << *it << std::endl;
+                std::cout << get_time() << "Deleted private server data: " << *it << std::endl;
                 json_token.erase(it, json_token.end());
                 std::cout << json_token << std::endl;
             }
         }
         else { // 有错误发生，并打印错误信息
-            std::cerr << getTime() << "Error: " << ec.message() << std::endl;
+            std::cerr << get_time() << "Error: " << ec.message() << std::endl;
         }
         });
 }
 
 
 
-// 处理添加json数据的请求的函数
-void handle_add_json_request(http::request<http::string_body>& req, http::response<http::string_body>& res, std::string ip_address) {
+// 处理创建服务器的请求的函数
+void handle_create_server_request(http::request<http::string_body>& req, http::response<http::string_body>& res, std::string ip_address) {
     string ip = ip_address;
     // 从请求中获取json数据
     json data = json::parse(req.body());
     // 打印json数据
-    std::cout << getTime() << "Received server data: " << data << std::endl;
+    std::cout << get_time() << "Received server data: " << data << std::endl;
     // 检查json数据是否包含了指定的参数，并且参数的类型是否为字符串
     bool invalid = data.contains("cachedId") && data.contains("checksum") && data.contains("description") && data.contains("hidden") && data.contains("ip") && data.contains("key") && data.contains("map") && data.contains("maxPlayers") && data.contains("name") && data.contains("playerCount") && data.contains("playlist") && data.contains("port") && data.contains("publicRef") && data.contains("timeStamp") && data.contains("version");
     // 将invalid变量的值赋给一个新的变量，比如no_response
@@ -265,7 +274,7 @@ void handle_add_json_request(http::request<http::string_body>& req, http::respon
             if (no_response) {
                 response["success"] = true;
                 res.body() = response.dump();
-                //        std::cout << getTime() << "Send server data: " << response << std::endl;
+                //        std::cout << get_time() << "Send server data: " << response << std::endl;
 
                         // - 在存储的数据中查找是否有与接收到的数据相匹配的内容，并更新或添加
 
@@ -312,7 +321,7 @@ void handle_add_json_request(http::request<http::string_body>& req, http::respon
                 // 设置定时器到期时执行的回调函数，删除存储的数据中超过3秒没有更新过的内容
                 global_timer.async_wait([](const boost::system::error_code& ec) {
                     if (!ec) { // 没有错误发生
-                        std::cout << getTime() << "Timer expired" << std::endl;
+                        std::cout << get_time() << "Timer expired" << std::endl;
                         // 获取当前时间戳，使用long long类型来表示
                         long long now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
                         // 在存储的数据中查找超过3秒没有更新过的内容，并删除
@@ -321,13 +330,13 @@ void handle_add_json_request(http::request<http::string_body>& req, http::respon
                             });
 
                         if (it != json_data.end()) {
-                            std::cout << getTime() << "Deleted server data: " << *it << std::endl;
+                            std::cout << get_time() << "Deleted server data: " << *it << std::endl;
                             json_data.erase(it, json_data.end());
                             std::cout << json_data << std::endl;
                         }
                     }
                     else { // 有错误发生，并打印错误信息
-                        std::cerr << getTime() << "Error: " << ec.message() << std::endl;
+                        std::cerr << get_time() << "Error: " << ec.message() << std::endl;
                     }
                     });
 
@@ -335,7 +344,7 @@ void handle_add_json_request(http::request<http::string_body>& req, http::respon
                 response["token"] = nullptr; // 没有token
                 // 将json对象转换为字符串，并设置为响应的body
                 res.body() = response.dump();
-                std::cout << getTime() << "Sendback create server result: " << response << std::endl;
+                std::cout << get_time() << "Sendback create server result: " << response << std::endl;
 
                 // - 将hidden参数的值转换为字符串，并替换原来的hidden属性的值
 
@@ -352,12 +361,12 @@ void handle_add_json_request(http::request<http::string_body>& req, http::respon
         response["error"] = "Missing required fields."; // 缺少需要的内容
         // 将json对象转换为字符串，并设置为响应的body
         res.body() = response.dump();
-        std::cout << getTime() << "Sendback create server result: " << response << std::endl;
+        std::cout << get_time() << "Sendback create server result: " << response << std::endl;
     }
 
 }
 
-void handle_get_json_request(http::request<http::string_body>& req, http::response<http::string_body>& res) {
+void handle_get_servers_list_request(http::request<http::string_body>& req, http::response<http::string_body>& res) {
     // 创建一个响应对象
     res.version(11); // HTTP 1.1
     res.result(http::status::ok); // 200 OK
@@ -373,8 +382,8 @@ void handle_get_json_request(http::request<http::string_body>& req, http::respon
     // 检查data中是否有"version"键，如果没有，直接返回一个错误信息给请求者
     if (data.contains("version")) {
         std::string version = data.at("version").get<std::string>();
-        // 判断version参数是否为VGameSDK008，如果是，则设置success为true，否则设置success为false和error信息
-        if (version == "VGameSDK008") {
+        // 判断version参数是否为来自设置文件的SDK_version，如果是，则设置success为true，否则设置success为false和error信息
+        if (version == SDK_version) {
             response["success"] = true;
         }
         else {
@@ -416,7 +425,8 @@ void handle_get_json_request(http::request<http::string_body>& req, http::respon
 json read_banlist() {
     ifstream input(banlist_file); // 打开文件
     if (!input) { // 检查文件是否存在
-        cerr << getTime() << "Error: cannot open " << banlist_file << endl;
+        cerr << get_time() << "Error: banlist file: " << banlist_file << " not found" <<endl;
+        cerr << get_time() << "Createing " << banlist_file << endl;
         ofstream file(banlist_file); // 创建一个文件流对象
         if (file.is_open()) { // 检查文件是否打开成功
             file << "{";
@@ -431,17 +441,17 @@ json read_banlist() {
 }
 
 
-//处理访问管理封禁系统的函数
-void handle_banlist_system_access(http::request<http::string_body>& req, http::response<http::string_body>& res) {
-    // 创建一个响应对象
-    res.version(11); // HTTP 1.1
-    res.result(http::status::ok); // 200 OK
-    res.set(http::field::content_type, "application/json"); // 设置响应内容类型为json
-    // 创建一个json对象，作为响应内容
-    json response;
-    // 从请求中获取json数据
-    json data = json::parse(req.body());
-}
+//处理访问管理封禁系统的函数 尚未使用
+// void handle_banlist_system_access(http::request<http::string_body>& req, http::response<http::string_body>& res) {
+//     // 创建一个响应对象
+//     res.version(11); // HTTP 1.1
+//     res.result(http::status::ok); // 200 OK
+//     res.set(http::field::content_type, "application/json"); // 设置响应内容类型为json
+//     // 创建一个json对象，作为响应内容
+//     json response;
+//     // 从请求中获取json数据
+//     json data = json::parse(req.body());
+// }
 
 //检查玩家是否被封禁的函数
 void handle_banlist_check_banned(http::request<http::string_body>& req, http::response<http::string_body>& res) {
@@ -479,7 +489,7 @@ void handle_banlist_check_banned(http::request<http::string_body>& req, http::re
     }
     // 将json对象转换为字符串，并设置为响应的body
     res.body() = response.dump();
-    std::cout << getTime() << "Send banlist check data: " << response << std::endl;
+    std::cout << get_time() << "Send banlist check data: " << response << std::endl;
 }
 
 //批量检查玩家是否被封禁的函数
@@ -514,7 +524,7 @@ void handle_banlist_bulkCheck(http::request<http::string_body>& req, http::respo
 
     // 将json对象转换为字符串，并设置为响应的body
     res.body() = response.dump();
-    std::cout << getTime() << "Send banlist bulkCheck data: " << response << std::endl;
+    std::cout << get_time() << "Send banlist bulkCheck data: " << response << std::endl;
 }
 
 // 根据token参数来查询私人服务器的函数
@@ -528,7 +538,7 @@ void handle_get_server_byToken(http::request<http::string_body>& req, http::resp
     json data = json::parse(req.body());
     // 从json数据中获取token参数，并转换为字符串类型
     std::string token = data.at("token").dump();
-    std::cout << getTime() << "request token:" << token << std::endl;
+    std::cout << get_time() << "request token:" << token << std::endl;
     std::cout << json_token << std::endl;
     // 在json_token中查找是否有与token参数相匹配的内容，并返回给客户端
     auto it = std::find_if(json_token.begin(), json_token.end(), [token](const json& j) {
@@ -557,7 +567,7 @@ void ioThread(asio::io_context& io) {
     while (keepRunning) {
         io_pcontext.run();
         io_context.run();
-        cout << getTime() << "Try To Delete Timeout Server\n"; // 输出提示信息
+        cout << get_time() << "Try To Delete Timeout Server\n"; // 输出提示信息
         io.restart();
         std::this_thread::sleep_for(std::chrono::seconds(3));
     }
@@ -574,7 +584,7 @@ int main() {
     else {
         test.close(); // 关闭文件
         create_default_settings(filename); // 生成一个默认的设置文件
-        cout << getTime() << "A default settings file has been created.\n"; // 输出提示信息
+        cout << get_time() << "A default settings file has been created.\n"; // 输出提示信息
         read_settings(filename); // 从文件中读取设置
     }
     try {
@@ -583,7 +593,7 @@ int main() {
         // 创建一个ssl_context对象，用于管理SSL/TLS加密相关的设置
         asio::ssl::context ssl_ctx{ asio::ssl::context::sslv23 };
         // 加载证书文件和私钥文件，这里从全局变量获取
-        ssl_ctx.use_certificate_chain_file(cret_file);
+        ssl_ctx.use_certificate_chain_file(cert_file);
         ssl_ctx.use_private_key_file(key_file, asio::ssl::context::pem);
         // 创建一个ip地址对象，表示监听的地址
         asio::ip::address address = asio::ip::make_address(listen_address);
@@ -603,7 +613,7 @@ int main() {
             try { // 使用try-catch语句来捕获可能发生的异常
                 asio::ip::tcp::socket socket{ io };
                 acceptor.accept(socket);
-                std::cout << getTime() << "Accepted connection from " << socket.remote_endpoint() << std::endl;
+                std::cout << get_time() << "Accepted connection from " << socket.remote_endpoint() << std::endl;
                 // 创建一个stream对象，用于进行SSL/TLS加密的读写操作
                 asio::ssl::stream<asio::ip::tcp::socket> stream{ std::move(socket), ssl_ctx };
                 // 设置SSL/TLS握手的验证模式和回调函数，以处理可能的证书错误
@@ -661,11 +671,11 @@ int main() {
                     beast::error_code ec;
                     stream.shutdown(ec);
                     if (ec) {
-                        std::cerr << getTime() << "Error: " << ec.message() << std::endl;
+                        std::cerr << get_time() << "Error: " << ec.message() << std::endl;
                     }
                     socket.close(ec);
                     if (ec) {
-                        std::cerr << getTime() << "Error: " << ec.message() << std::endl;
+                        std::cerr << get_time() << "Error: " << ec.message() << std::endl;
                     }
 
                     continue; // 继续下一次循环，等待新的连接请求
@@ -682,24 +692,25 @@ int main() {
                     continue;
                 }
 
-                std::cout << getTime() << "Received request: " << req << std::endl;
+                std::cout << get_time() << "Received request: " << req << std::endl;
                 // 创建一个响应对象，用于发送HTTP响应
                 http::response<http::string_body> res;
-                // 判断请求的目标是否为/servers，如果是，则调用处理获取json数据的请求的函数，否则继续判断
+                // 判断请求的目标是否为/servers，如果是，则调用处理请求服务器列表的函数，否则继续判断
                 if (req.target() == "/servers") {
-                    handle_get_json_request(req, res);
+                    handle_get_servers_list_request(req, res);
                 }
-                // 判断请求的目标是否为/servers/add，如果是，则调用处理添加json数据的请求的函数，否则继续判断
+                // 判断请求的目标是否为/servers/add，如果是，则调用处理创建服务器的函数，否则继续判断
                 else if (req.target() == "/servers/add") {
                     // 从请求中获取远程端点的地址和端口，并转换为字符串
                     std::string ip_address = stream.lowest_layer().remote_endpoint().address().to_string();
-                    // 将ip_address作为参数传递给handle_add_json_request函数
-                    handle_add_json_request(req, res, ip_address);
+                    // 将ip_address作为参数传递给handle_create_server_request函数
+                    handle_create_server_request(req, res, ip_address);
                 }
                 // 判断请求的目标是否为/banlist，如果是，则调用处理访问管理封禁系统的函数，否则继续判断
                 //else if (req.target() == "/banlist") {
                 //    handle_banlist_system_access(req, res);
                 //}
+
                  // 判断请求的目标是否为/server/byToken，如果是，则调用处理访问通过token获取服务器的函数，否则继续判断
                 else if (req.target() == "/server/byToken") {
                     handle_get_server_byToken(req, res);
@@ -733,15 +744,15 @@ int main() {
                 beast::error_code ec;
                 stream.shutdown(ec);
                 if (ec) { // 检查是否有错误发生，并打印错误信息
-                    std::cerr << getTime() << "Error: " << ec.message() << std::endl;
+                    std::cerr << get_time() << "Error: " << ec.message() << std::endl;
                 }
                 socket.close(ec); // 关闭socket对象，释放文件描述符，并检查是否有错误发生，并打印错误信息
                 if (ec) {
-                    std::cerr << getTime() << "Error: " << ec.message() << std::endl;
+                    std::cerr << get_time() << "Error: " << ec.message() << std::endl;
                 }
             }
             catch (std::exception& e) { // 在catch块中打印异常信息
-                std::cerr << getTime() << "Exception: " << e.what() << std::endl;
+                std::cerr << get_time() << "Exception: " << e.what() << std::endl;
             }
         }
 
@@ -749,7 +760,7 @@ int main() {
 
     }
     catch (std::exception& e) { // 在catch块中打印异常信息
-        std::cerr << getTime() << "Error: " << e.what() << std::endl;
+        std::cerr << get_time() << "Error: " << e.what() << std::endl;
     }
     return 0;
 }
