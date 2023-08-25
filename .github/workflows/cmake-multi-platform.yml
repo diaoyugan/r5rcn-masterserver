@@ -70,7 +70,8 @@ jobs:
       shell: bash
       
     - name: Setup OpenSSL x64
-      uses: janbar/openssl-cmake@master
+       run: |
+          vcpkg install openssl
 
     - name: Setup nlohmann json
       run: |
