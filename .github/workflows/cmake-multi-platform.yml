@@ -55,20 +55,13 @@ jobs:
         echo "build-output-dir=${{ github.workspace }}/build" >> "$GITHUB_OUTPUT"
 
     - name: Build Boost
-      id: boost
-      uses: egor-tensin/build-boost@v1
-      with:
-        version: 1.82.0
-        libraries: filesystem program_options system asio beast uuid 
-        platform: x64
-        configuration: Release
-        
-    - name: Show paths
       run: |
-        printf 'Boost has been unpacked to: %s\n' '${{ steps.boost.outputs.root }}'
-        printf 'Libraries can be found here: %s\n' '${{ steps.boost.outputs.librarydir }}'
+        vcpkg install boost:x64-windows
+        vcpkg install boost-asio:x64-windows
+        vcpkg install boost-beast:x64-windows
+        vcpkg install boost-uuid:x64-windows
       shell: bash
-      
+        
     - name: Setup OpenSSL x64
       run: |
         vcpkg install openssl
