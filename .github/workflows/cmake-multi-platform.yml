@@ -70,12 +70,13 @@ jobs:
       shell: bash
       
     - name: Setup OpenSSL x64
-       run: |
-          vcpkg install openssl
+      run: |
+        vcpkg install openssl
+      shell: bash
 
     - name: Setup nlohmann json
       run: |
-          vcpkg install nlohmann-json
+        vcpkg install nlohmann-json
       shell: bash
 
 
