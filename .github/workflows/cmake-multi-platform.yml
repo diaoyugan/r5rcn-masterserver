@@ -54,7 +54,7 @@ jobs:
       run: |
         echo "build-output-dir=${{ github.workspace }}/build" >> "$GITHUB_OUTPUT"
 
-    - name: Build Boost
+    - name: Setup Boost
       run: |
         vcpkg install boost:x64-windows
         vcpkg install boost-asio:x64-windows
@@ -64,7 +64,7 @@ jobs:
         
     - name: Setup OpenSSL x64
       run: |
-        vcpkg install openssl
+        vcpkg install openssl:x64
       shell: bash
 
     - name: Setup nlohmann json
