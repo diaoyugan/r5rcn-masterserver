@@ -29,16 +29,16 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="inc.hpp">
+    <ClInclude Include="include\ban_list.hpp">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="servers_list.hpp">
+    <ClInclude Include="include\inc.hpp">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="system.hpp">
+    <ClInclude Include="include\servers_list.hpp">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="ban_list.hpp">
+    <ClInclude Include="include\system.hpp">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>

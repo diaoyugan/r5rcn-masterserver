@@ -154,10 +154,10 @@
     <ClCompile Include="system.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="ban_list.hpp" />
-    <ClInclude Include="inc.hpp" />
-    <ClInclude Include="servers_list.hpp" />
-    <ClInclude Include="system.hpp" />
+    <ClInclude Include="include\ban_list.hpp" />
+    <ClInclude Include="include\inc.hpp" />
+    <ClInclude Include="include\servers_list.hpp" />
+    <ClInclude Include="include\system.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
