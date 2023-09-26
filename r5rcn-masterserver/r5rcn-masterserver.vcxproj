@@ -148,7 +148,16 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="ban_list.cpp" />
     <ClCompile Include="ms-https.cpp" />
+    <ClCompile Include="servers_list.cpp" />
+    <ClCompile Include="system.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="ban_list.hpp" />
+    <ClInclude Include="inc.hpp" />
+    <ClInclude Include="servers_list.hpp" />
+    <ClInclude Include="system.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
