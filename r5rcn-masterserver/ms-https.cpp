@@ -3,48 +3,54 @@
 #include "include\servers_list.hpp"
 #include "include\file_system.hpp"
 
-
 std::atomic<bool> keepRunning{ true };
 
 void ioThread(asio::io_context& io) {
     while (keepRunning) {
-        io_pcontext.run();
-        io_context.run();
-        cout << get_time() << "Try To Delete Timeout Server\n"; // 输出提示信息
         io.restart();
+        io.run();
         std::this_thread::sleep_for(std::chrono::seconds(3));
+        std::cout << get_time() << "Try To Delete Timeout Server\n"; // 输出提示信息
     }
 }
 
-void handle_request(asio::ssl::stream<tcp::socket>& ssl_stream, asio::yield_context yield) {
+// 处理客户端连接的函数
+void handle_client(asio::ip::tcp::socket socket, asio::ssl::context& ssl_ctx) {
     try {
+        // 创建一个stream对象，用于进行SSL/TLS加密的读写操作
+        asio::ssl::stream<asio::ip::tcp::socket> stream{ std::move(socket), ssl_ctx };
+
+        if (enable_verifi) {
+            stream.set_verify_mode(asio::ssl::verify_peer);
+            stream.set_verify_callback(asio::ssl::rfc2818_verification(cert_verifi));
+        }
+        else {
+            stream.set_verify_mode(asio::ssl::verify_none);
+        }
+
+        // 执行SSL/TLS握手操作
+        std::cout << "Starting async handshake\n";
+        stream.handshake(asio::ssl::stream_base::server);
+
+        // 创建一个缓冲区对象，用于存储接收到的数据
         beast::flat_buffer buffer;
+        // 创建一个请求对象，用于解析接收到的HTTP请求
         http::request<http::string_body> req;
 
-        http::async_read(ssl_stream, buffer, req, yield);
+        // 读取HTTP请求，并将其存储到请求对象中
+        http::read(stream, buffer, req);
 
-        if (req.find(http::field::user_agent) != req.end()) {
-            http::response<http::string_body> res;
-            res.version(11);
-            res.result(http::status::forbidden);
-            res.set(http::field::content_type, "text/plain");
-            res.body() = "Access forbidden";
-            res.prepare_payload();
+        std::cout << get_time() << "Received request: " << req << std::endl;
 
-            http::async_write(ssl_stream, res, yield);
-            ssl_stream.lowest_layer().shutdown(tcp::socket::shutdown_send);
-            return;
-        }
-
+        // 创建一个响应对象，用于发送HTTP响应
         http::response<http::string_body> res;
-        if (req.target() == "/eula") {
-            handle_check_eula(req, res);
-        }
-        else if (req.target() == "/servers") {
+
+        // 判断请求的目标并调用相应的处理函数
+        if (req.target() == "/servers") {
             handle_get_servers_list_request(req, res);
         }
         else if (req.target() == "/servers/add") {
-            std::string ip_address = ssl_stream.lowest_layer().remote_endpoint().address().to_string();
+            std::string ip_address = stream.lowest_layer().remote_endpoint().address().to_string();
             handle_create_server_request(req, res, ip_address);
         }
         else if (req.target() == "/server/byToken") {
@@ -57,76 +63,27 @@ void handle_request(asio::ssl::stream<tcp::socket>& ssl_stream, asio::yield_cont
             handle_banlist_bulkCheck(req, res);
         }
         else {
-            res.version(11);
-            res.result(http::status::not_found);
-            res.set(http::field::content_type, "text/plain");
-            res.body() = "The requested resource was not found";
-            res.prepare_payload();
+            res.version(11); // HTTP 1.1
+            res.result(http::status::not_found); // 404 Not Found
+            res.set(http::field::content_type, "text/plain"); // 设置响应内容类型为纯文本
+            res.body() = "The requested resource was not found"; // 设置响应内容为错误信息
         }
 
-        http::async_write(ssl_stream, res, yield);
-        ssl_stream.lowest_layer().shutdown(tcp::socket::shutdown_send);
+        // 发送HTTP响应，并关闭连接
+        http::write(stream, res);
+
+        beast::error_code ec;
+        stream.shutdown(ec);
+        if (ec) {
+            std::cerr << get_time() << "Error: " << ec.message() << std::endl;
+        }
     }
     catch (std::exception& e) {
-        std::cerr << "Request handling error: " << e.what() << std::endl;
+        std::cerr << get_time() << "Exception: " << e.what() << std::endl;
     }
 }
 
-void start_accept(tcp::acceptor& acceptor, asio::ssl::context& ssl_ctx, asio::io_context& io_context) {
-    auto socket = std::make_shared<tcp::socket>(io_context);
-    acceptor.async_accept(*socket, [&acceptor, &ssl_ctx, &io_context, socket](const boost::system::error_code& error) {
-        if (!error) {
-            // 为握手超时时间创建deadline timer
-            auto timer = std::make_shared<asio::steady_timer>(io_context, std::chrono::seconds(10)); // 设置超时时间为十秒
-
-            asio::spawn(io_context, [socket, &ssl_ctx, timer](asio::yield_context yield) mutable {
-                asio::ssl::stream<tcp::socket> ssl_stream(std::move(*socket), ssl_ctx);
-
-                if (enable_verifi) {
-                    ssl_stream.set_verify_mode(asio::ssl::verify_peer);
-                    ssl_stream.set_verify_callback(asio::ssl::rfc2818_verification(cert_verifi));
-                }
-                else {
-                    ssl_stream.set_verify_mode(asio::ssl::verify_none);
-                }
-
-                try {
-                    // Async handshake with timeout
-                    std::cout << "Starting async handshake" << std::endl;
-                    ssl_stream.async_handshake(asio::ssl::stream_base::server, yield);
-
-                    // Cancel the timer as handshake is successful
-                    timer->cancel();
-
-                    std::cout << "Handshake successful" << std::endl;
-
-                    handle_request(ssl_stream, yield);
-                }
-                catch (std::exception& e) {
-                    std::cerr << "Handshake error: " << e.what() << std::endl;
-                }
-                });
-
-            // Timer handler for handshake timeout
-            timer->async_wait([socket](const boost::system::error_code& ec) {
-                if (!ec) {
-                    std::cerr << "Handshake timed out" << std::endl;
-                    socket->close(); // Close the socket due to timeout
-                }
-                else if (ec != asio::error::operation_aborted) {
-                    std::cerr << "Timer error: " << ec.message() << std::endl;
-                }
-                });
-        }
-        else {
-            std::cerr << "Accept error: " << error.message() << std::endl;
-        }
-
-        start_accept(acceptor, ssl_ctx, io_context);
-        });
-}
-
-
+// 主函数
 int main() {
     // 获取程序所在的目录
     char buffer[MAX_PATH];
@@ -144,8 +101,9 @@ int main() {
     else {
         std::cerr << "Failed to set the current working directory: " << GetLastError() << std::endl;
     }
-    string filename = "settings.txt"; // 设置文件的名字
-    ifstream test(filename); // 尝试打开文件
+
+    std::string filename = "settings.txt"; // 设置文件的名字
+    std::ifstream test(filename); // 尝试打开文件
     if (test.good()) { // 检查文件是否存在
         test.close(); // 关闭文件
         read_settings(filename); // 从文件中读取设置
@@ -153,29 +111,50 @@ int main() {
     else {
         test.close(); // 关闭文件
         create_default_settings(filename); // 生成一个默认的设置文件
-        cout << get_time() << "A default settings file has been created.\n"; // 输出提示信息
+        std::cout << get_time() << "A default settings file has been created.\n"; // 输出提示信息
         read_settings(filename); // 从文件中读取设置
     }
-    std::cout << "Settings read complete" << std::endl;
-    std::cout << "Listening:" << listen_address <<":"<< listen_port << std::endl;
-    try {
-        asio::io_context io;
-        asio::ssl::context ssl_ctx{ asio::ssl::context::sslv23 };
 
+    try {
+        // 创建一个io_context对象，用于管理异步操作
+        asio::io_context io;
+        // 创建一个ssl_context对象，用于管理SSL/TLS加密相关的设置
+        asio::ssl::context ssl_ctx{ asio::ssl::context::sslv23 };
         // 加载证书文件和私钥文件，这里从全局变量获取
         ssl_ctx.use_certificate_chain_file(cert_file);
         ssl_ctx.use_private_key_file(key_file, asio::ssl::context::pem);
+        // 创建一个ip地址对象，表示监听的地址
+        asio::ip::address address = asio::ip::make_address(listen_address);
+        // 创建一个端口号对象，表示监听的端口
+        unsigned short port = static_cast<unsigned short>(listen_port);
+        // 创建一个endpoint对象，表示监听的地址和端口的组合
+        asio::ip::tcp::endpoint endpoint{ address, port };
+        // 创建一个acceptor对象，用于接受客户端的连接请求
+        asio::ip::tcp::acceptor acceptor{ io, endpoint };
+        // 等待客户端的连接请求
+        std::cout << "Listening on " << endpoint << std::endl;
 
-        asio::ip::tcp::acceptor acceptor(io, tcp::endpoint(asio::ip::make_address(listen_address), listen_port));
-        start_accept(acceptor, ssl_ctx, io);
+        std::thread io_thread(ioThread, std::ref(io));
 
+        while (1) { // 用一个循环来处理多个请求
+            try { // 使用try-catch语句来捕获可能发生的异常
+                asio::ip::tcp::socket socket{ io };
+                acceptor.accept(socket);
+                std::cout << get_time() << "Accepted connection from " << socket.remote_endpoint() << std::endl;
 
+                // 每个新连接启动一个新线程来处理
+                std::thread(handle_client, std::move(socket), std::ref(ssl_ctx)).detach();
+            }
+            catch (std::exception& e) { // 在catch块中打印异常信息
+                std::cerr << get_time() << "Exception: " << e.what() << std::endl;
+            }
+        }
 
-        io.run();
+        acceptor.close(); // 在服务器终止时关闭acceptor对象
+
     }
-    catch (std::exception& e) {
-        std::cerr << "Exception: " << e.what() << std::endl;
+    catch (std::exception& e) { // 在catch块中打印异常信息
+        std::cerr << get_time() << "Error: " << e.what() << std::endl;
     }
     return 0;
 }
-
