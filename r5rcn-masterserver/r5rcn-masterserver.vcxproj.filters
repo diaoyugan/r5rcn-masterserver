@@ -18,13 +18,16 @@
     <ClCompile Include="ms-https.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
-    <ClCompile Include="system.cpp">
+    <ClCompile Include="file_system.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="servers_list.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="ban_list.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="EULA.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>
@@ -38,7 +41,7 @@
     <ClInclude Include="include\servers_list.hpp">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="include\system.hpp">
+    <ClInclude Include="include\file_system.hpp">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>

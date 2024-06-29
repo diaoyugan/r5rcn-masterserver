@@ -149,15 +149,16 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="ban_list.cpp" />
+    <ClCompile Include="EULA.cpp" />
     <ClCompile Include="ms-https.cpp" />
     <ClCompile Include="servers_list.cpp" />
-    <ClCompile Include="system.cpp" />
+    <ClCompile Include="file_system.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\ban_list.hpp" />
     <ClInclude Include="include\inc.hpp" />
     <ClInclude Include="include\servers_list.hpp" />
-    <ClInclude Include="include\system.hpp" />
+    <ClInclude Include="include\file_system.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

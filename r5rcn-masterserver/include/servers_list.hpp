@@ -20,3 +20,4 @@ extern void add_private_server(http::request<http::string_body>& req, http::resp
 extern void handle_create_server_request(http::request<http::string_body>& req, http::response<http::string_body>& res, std::string ip_address);
 extern void handle_get_servers_list_request(http::request<http::string_body>& req, http::response<http::string_body>& res);
 extern void handle_get_server_byToken(http::request<http::string_body>& req, http::response<http::string_body>& res);
+extern void handle_check_eula(http::request<http::string_body>& req, http::response<http::string_body>& res);

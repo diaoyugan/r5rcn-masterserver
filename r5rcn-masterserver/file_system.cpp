@@ -1,6 +1,7 @@
-#include "include\system.hpp"
+#include "include\file_system.hpp"
 
 std::string banlist_file;
+std::string eula_file;
 std::string cert_file;
 std::string key_file;
 bool enable_verifi;
@@ -21,6 +22,9 @@ string get_time() {
 void store_line(string key, string value) {
     if (key == "banlist_file") {
         banlist_file = value;
+    }
+    else if (key == "eula_file") {
+        eula_file = value;
     }
     else if (key == "cert_file") {
         cert_file = value;
@@ -79,13 +83,17 @@ void create_default_settings(string filename) {
         file << "#如果你在windows系统上要使用反斜线，请务必打两个，不然你懂的 对了，可以用绝对路径或者相对路径\n";
         file << "#本配置文件只会在ms的工作目录生成和读取 请留意\n";
         file << "#banlist.json文件会在第一次需要使用时生成，你可以自己创建 和本文件相同 在工作目录生成和读取\n";
+        file << " #eula不会自己生成 务必注意！！！\n";
         file << "\n";
         file << "\n";
         file << "#请求者的SDK版本 用于判断对方客户端或服务端是否需要更新\n";
-        file << "SDK_version=VGameSDK008\n";
+        file << "SDK_version=VGameSDK009\n";
         file << "\n";
         file << "#封禁列表文件\n";
         file << "banlist_file=banlist.json\n";
+        file << "\n";
+        file << "#EULA文件\n";
+        file << "eula_file=eula.json\n";
         file << "\n";
         file << "#证书文件\n";
         file << "cert_file=cert.crt\n";
@@ -128,4 +136,23 @@ json read_banlist() {
     input >> banlist; // 从文件中读取json数据
     input.close(); // 关闭文件
     return banlist; // 返回json对象
+}
+
+// 定义一个函数，用于读取eula文件并返回一个json对象
+json read_eula() {
+    ifstream input(eula_file); // 打开文件
+    if (!input) { // 检查文件是否存在
+        cerr << get_time() << "Error: eula file: " << eula_file << " not found" << endl;
+        cerr << get_time() << "Createing " << eula_file << endl;
+        ofstream file(eula_file); // 创建一个文件流对象
+        if (file.is_open()) { // 检查文件是否打开成功
+            file << "{";
+            file << "}";
+            file.close(); // 关闭文件
+        }
+    }
+    json eula; // 创建一个json对象
+    input >> eula; // 从文件中读取json数据
+    input.close(); // 关闭文件
+    return eula; // 返回json对象
 }

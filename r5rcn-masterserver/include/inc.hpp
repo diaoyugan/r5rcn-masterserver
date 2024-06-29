@@ -13,15 +13,17 @@
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
 #include <boost/asio/ssl.hpp>
+#include <boost/asio/spawn.hpp>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
 #include <nlohmann/json.hpp>
-
+#include <optional>
 
 namespace asio = boost::asio;
 namespace beast = boost::beast;
 namespace http = beast::http;
+using tcp = asio::ip::tcp;
 using json = nlohmann::json;
 using namespace std;
 
