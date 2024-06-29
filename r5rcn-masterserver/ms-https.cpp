@@ -49,6 +49,9 @@ void handle_client(asio::ip::tcp::socket socket, asio::ssl::context& ssl_ctx) {
         if (req.target() == "/servers") {
             handle_get_servers_list_request(req, res);
         }
+        else if (req.target() == "/eula") {
+            handle_check_eula(req, res);
+        }
         else if (req.target() == "/servers/add") {
             std::string ip_address = stream.lowest_layer().remote_endpoint().address().to_string();
             handle_create_server_request(req, res, ip_address);
